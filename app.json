@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "Chatalog",
+    "slug": "chatalog",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "scheme": "chatalog",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#295F2D"
+    },
+    "ios": {
+      "bundleIdentifier": "com.sellsquare.chatalog",
+      "supportsTablet": false,
+      "associatedDomains": [
+        "applinks:app.sellsquare.io"
+      ]
+    },
+    "android": {
+      "package": "com.sellsquare.chatalog",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#295F2D"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "app.sellsquare.io",
+              "pathPrefix": "/ai-chat"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Chatalog needs camera access to photograph payment receipts."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Chatalog needs photo access to attach payment receipts."
+        }
+      ],
+      "expo-video"
+    ],
+    "notification": {
+      "icon": "./assets/icon.png",
+      "color": "#295F2D",
+      "iosDisplayInForeground": true
+    }
+  }
+}
