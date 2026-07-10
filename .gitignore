@@ -3,3 +3,9 @@
 .env
 
 .DS_Store
+
+# Expo build/export artifacts — never commit. `expo export` bakes every
+# EXPO_PUBLIC_* env value into the bundle (found tracked + pushed in the
+# 2026-07-07 secrets audit).
+/dist
+.expo

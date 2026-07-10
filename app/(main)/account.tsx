@@ -22,6 +22,10 @@ import api from '../../src/services/api';
 import { Colors } from '../../src/constants/colors';
 import { useThemedStyles } from '../../src/theme/useThemedStyles';
 import ThemeToggleButton from '../../src/components/ThemeToggleButton';
+import LocationEditorModal from '../../src/components/location/LocationEditorModal';
+import EditProfileModal from '../../src/components/account/EditProfileModal';
+import ChangeEmailModal from '../../src/components/account/ChangeEmailModal';
+import ChangePasswordModal from '../../src/components/account/ChangePasswordModal';
 import { useConfirm } from '../../src/components/ui/ConfirmDialog';
 
 function SectionHeader({ title }: { title: string }) {
@@ -70,6 +74,16 @@ export default function Account() {
 
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+
+  // Human-readable summary of the buyer's saved delivery location, if any.
+  const addr = buyer?.defaultShippingAddress;
+  const locationSummary = [addr?.city, addr?.state, addr?.country]
+    .filter(Boolean)
+    .join(', ');
 
   const pickAndUploadAvatar = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -218,10 +232,43 @@ export default function Account() {
             )}
           </View>
         </TouchableOpacity>
-        <View>
+        <View style={styles.profileMeta}>
           <Text style={styles.profileName}>{buyer?.firstName} {buyer?.lastName}</Text>
           <Text style={styles.profileEmail}>{buyer?.email}</Text>
         </View>
+        <TouchableOpacity
+          style={styles.editProfileBtn}
+          onPress={() => setProfileOpen(true)}
+          accessibilityLabel="Edit profile"
+        >
+          <Ionicons name="create-outline" size={18} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+
+      <SectionHeader title="Personal" />
+      <View style={styles.card}>
+        <Row
+          icon="person-outline"
+          label="Name & phone"
+          onPress={() => setProfileOpen(true)}
+        />
+        <Row
+          icon="mail-outline"
+          label="Email"
+          value={buyer?.email}
+          onPress={() => setEmailOpen(true)}
+        />
+        <Row
+          icon="lock-closed-outline"
+          label="Change password"
+          onPress={() => setPasswordOpen(true)}
+        />
+        <Row
+          icon="location-outline"
+          label="Delivery location"
+          value={locationSummary || 'Not set'}
+          onPress={() => setLocationOpen(true)}
+        />
       </View>
 
       <SectionHeader title="Notifications" />
@@ -260,6 +307,15 @@ export default function Account() {
         />
       </View>
 
+      <SectionHeader title="Help" />
+      <View style={styles.card}>
+        <Row
+          icon="chatbubble-ellipses-outline"
+          label="Support"
+          onPress={() => router.push('/support' as any)}
+        />
+      </View>
+
       <SectionHeader title="Privacy" />
       <View style={styles.card}>
         <Row
@@ -286,6 +342,15 @@ export default function Account() {
       </View>
 
       <Text style={styles.version}>Chatalog v1.0.0</Text>
+
+      <EditProfileModal visible={profileOpen} onClose={() => setProfileOpen(false)} />
+      <ChangeEmailModal visible={emailOpen} onClose={() => setEmailOpen(false)} />
+      <ChangePasswordModal visible={passwordOpen} onClose={() => setPasswordOpen(false)} />
+      <LocationEditorModal
+        visible={locationOpen}
+        onClose={() => setLocationOpen(false)}
+        intro="Set where you shop from so Discover can show shops nearest to you. Pick your country, state and city, and optionally pin your exact address."
+      />
     </ScrollView>
   );
 }
@@ -358,8 +423,17 @@ const makeStyles = (C: typeof Colors) => StyleSheet.create({
     fontSize: 18,
     fontFamily: 'Manrope_700Bold',
   },
+  profileMeta: { flex: 1 },
   profileName: { fontSize: 16, fontFamily: 'Manrope_700Bold', color: C.text },
   profileEmail: { fontSize: 13, fontFamily: 'Manrope_400Regular', color: C.textSecondary, marginTop: 2 },
+  editProfileBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sectionHeader: {
     fontSize: 11,
     fontFamily: 'Manrope_600SemiBold',

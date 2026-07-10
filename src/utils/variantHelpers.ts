@@ -1,5 +1,6 @@
 // Helpers for working with FeedPost / variant data on the client.
 import type { FeedPost, FeedVariantCombination } from '../services/feedService';
+import { getCurrencySymbol } from './currency';
 
 // Find the combination matching the current selection. Returns null if any
 // attribute is unselected or the combination doesn't exist. `selected` may be
@@ -99,7 +100,9 @@ export function formatPriceLabel(
   post: FeedPost,
   selected?: Record<string, string | null> | null,
 ): string {
-  const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
+  // Each store prices in its own country's currency (no FX conversion).
+  const symbol = getCurrencySymbol(post.business?.currency);
+  const fmt = (n: number) => `${symbol}${Number(n || 0).toLocaleString()}`;
   if (post.type === 'group') {
     const combo = findCombination(post, selected);
     if (combo) return fmt(combo.price);

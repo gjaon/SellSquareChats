@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../constants/colors';
 import { useThemedStyles } from '../theme/useThemedStyles';
 import type { ProductCard } from '../store/slices/chatSlice';
+import { getCurrencySymbol } from '../utils/currency';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -30,19 +31,21 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onAsk?: (card: ProductCard) => void;
+  /** Store currency (ISO-4217). Price formats in the store's own currency. */
+  currency?: string;
 }
 
-const formatPrice = (n: number) =>
-  Number.isFinite(n) && n > 0 ? `₦${Math.round(n).toLocaleString()}` : '';
+const formatPrice = (n: number, symbol: string) =>
+  Number.isFinite(n) && n > 0 ? `${symbol}${Math.round(n).toLocaleString()}` : '';
 
-export default function ProductDetailSheet({ card, visible, onClose, onAsk }: Props) {
+export default function ProductDetailSheet({ card, visible, onClose, onAsk, currency }: Props) {
   const styles = useThemedStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const [pageIndex, setPageIndex] = useState(0);
 
   if (!card) return null;
 
-  const priceLabel = formatPrice(card.price);
+  const priceLabel = formatPrice(card.price, getCurrencySymbol(currency));
   // Build the gallery — prefer the multi-image array but fall back to
   // the single `image` for legacy cards. Drop empties so we don't show
   // broken slots.

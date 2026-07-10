@@ -15,6 +15,7 @@ import SmartImage from './SmartImage';
 import { Colors } from '../constants/colors';
 import { useThemedStyles } from '../theme/useThemedStyles';
 import type { ProductCard } from '../store/slices/chatSlice';
+import { getCurrencySymbol } from '../utils/currency';
 import ProductDetailSheet from './ProductDetailSheet';
 
 interface Props {
@@ -24,14 +25,17 @@ interface Props {
    * The chat screen wires this up to send a preset chat message.
    */
   onAskAbout?: (card: ProductCard) => void;
+  /** Store currency (ISO-4217). Prices format in the store's own currency. */
+  currency?: string;
 }
 
-const formatPrice = (n: number) =>
-  Number.isFinite(n) && n > 0 ? `₦${Math.round(n).toLocaleString()}` : '';
+const formatPrice = (n: number, symbol: string) =>
+  Number.isFinite(n) && n > 0 ? `${symbol}${Math.round(n).toLocaleString()}` : '';
 
-export default function ProductCardList({ cards, onAskAbout }: Props) {
+export default function ProductCardList({ cards, onAskAbout, currency }: Props) {
   const styles = useThemedStyles(makeStyles);
   const [activeCard, setActiveCard] = useState<ProductCard | null>(null);
+  const symbol = getCurrencySymbol(currency);
 
   if (!cards || cards.length === 0) return null;
 
@@ -39,7 +43,7 @@ export default function ProductCardList({ cards, onAskAbout }: Props) {
     <View style={styles.wrap}>
       {cards.map((card, idx) => {
         const key = `${card.productId || card.groupId || 'card'}-${idx}`;
-        const priceLabel = formatPrice(card.price);
+        const priceLabel = formatPrice(card.price, symbol);
         return (
           <View key={key} style={styles.card}>
             {card.image ? (
@@ -79,6 +83,7 @@ export default function ProductCardList({ cards, onAskAbout }: Props) {
 
       <ProductDetailSheet
         card={activeCard}
+        currency={currency}
         visible={!!activeCard}
         onClose={() => setActiveCard(null)}
         onAsk={(c) => {

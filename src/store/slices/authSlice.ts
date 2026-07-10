@@ -4,6 +4,19 @@ import { login, register, logout, getMe } from '../../services/authService';
 import api from '../../services/api';
 import { BUYER_TOKEN_KEY } from '../../constants/config';
 
+interface BuyerLocation {
+  type: 'Point';
+  coordinates: [number, number];
+}
+
+interface BuyerShippingAddress {
+  street?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  countryCode?: string;
+}
+
 interface Buyer {
   _id: string;
   firstName: string;
@@ -11,6 +24,9 @@ interface Buyer {
   email: string;
   phone?: string;
   profilePicture?: string;
+  location?: BuyerLocation | null;
+  locationSource?: string;
+  defaultShippingAddress?: BuyerShippingAddress | null;
 }
 
 interface AuthState {
@@ -37,7 +53,21 @@ export const loginBuyer = createAsyncThunk(
 export const registerBuyer = createAsyncThunk(
   'auth/register',
   async (
-    payload: { firstName: string; lastName: string; email: string; password: string; phone?: string },
+    payload: {
+      firstName: string;
+      lastName: string;
+      email: string;
+      password: string;
+      phone?: string;
+      country?: string;
+      countryCode?: string;
+      state?: string;
+      city?: string;
+      street?: string;
+      latitude?: number | null;
+      longitude?: number | null;
+      locationSource?: string;
+    },
     { rejectWithValue }
   ) => {
     try {
@@ -147,6 +177,26 @@ const authSlice = createSlice({
       state.sessionChecked = true;
       state.error = null;
     },
+    // Merge a names/phone profile update into the signed-in buyer.
+    setBuyerProfile(state, action) {
+      if (state.buyer) {
+        const { firstName, lastName, phone } = action.payload || {};
+        if (firstName !== undefined) state.buyer.firstName = firstName;
+        if (lastName !== undefined) state.buyer.lastName = lastName;
+        if (phone !== undefined) state.buyer.phone = phone;
+      }
+    },
+    // Merge a location update returned by PATCH /api/buyer/location into the
+    // signed-in buyer (powers the "add your location" prompt for existing
+    // buyers + distance-ranked Discover).
+    setBuyerLocation(state, action) {
+      if (state.buyer) {
+        state.buyer.location = action.payload?.location ?? state.buyer.location;
+        state.buyer.locationSource = action.payload?.locationSource ?? state.buyer.locationSource;
+        state.buyer.defaultShippingAddress =
+          action.payload?.defaultShippingAddress ?? state.buyer.defaultShippingAddress;
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -210,5 +260,6 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError, sessionExpired } = authSlice.actions;
+export const { clearError, sessionExpired, setBuyerLocation, setBuyerProfile } =
+  authSlice.actions;
 export default authSlice.reducer;

@@ -39,3 +39,54 @@ export const colorForSender = ({
   const key = String(name || '').trim().toLowerCase() || 'staff';
   return HUMAN_PALETTE[hashString(key) % HUMAN_PALETTE.length];
 };
+
+// ── C3: role-based bubble tints (mirror of the merchant surface) ───────────────
+// The MERCHANT Conversations panel (web + sellsquare.app) colours agent bubbles
+// by role (owner/staff/AI) with these brand-adjacent background+label tints.
+// Kept here so the 3-file participant-colour mirror stays in sync. The buyer
+// ChatBubble intentionally does NOT apply bubble backgrounds (buyer bubble
+// layout is out of scope for C3) — this export exists for parity / future use.
+export const STAFF_TINT_COUNT = 5;
+type BubbleTint = { bg: string; label: string };
+const BUBBLE_TINTS: Record<'light' | 'dark', { ai: BubbleTint; owner: BubbleTint; staff: BubbleTint[] }> = {
+  light: {
+    ai: { bg: '#e4f3ec', label: '#047857' },
+    owner: { bg: '#d5ecd8', label: '#1f4823' },
+    staff: [
+      { bg: '#e8f0de', label: '#4d7c0f' },
+      { bg: '#d9f0ec', label: '#0f766e' },
+      { bg: '#dcecf3', label: '#0e7490' },
+      { bg: '#eaf1d6', label: '#3f6212' },
+      { bg: '#dcf0e6', label: '#059669' },
+    ],
+  },
+  dark: {
+    ai: { bg: '#16291f', label: '#6ee7b7' },
+    owner: { bg: '#1b2e1f', label: '#8cc593' },
+    staff: [
+      { bg: '#232a14', label: '#bef264' },
+      { bg: '#16292a', label: '#5eead4' },
+      { bg: '#16262b', label: '#7dd3fc' },
+      { bg: '#202a16', label: '#a3c76b' },
+      { bg: '#17281f', label: '#6ee7b7' },
+    ],
+  },
+};
+
+export const bubbleTintForSender = ({
+  isAI = false,
+  role = null,
+  name = '',
+  isDark = false,
+}: {
+  isAI?: boolean;
+  role?: 'owner' | 'staff' | null;
+  name?: string | null;
+  isDark?: boolean;
+} = {}): BubbleTint => {
+  const set = isDark ? BUBBLE_TINTS.dark : BUBBLE_TINTS.light;
+  if (isAI) return set.ai;
+  if (role === 'owner') return set.owner;
+  const key = String(name || '').trim().toLowerCase() || 'staff';
+  return set.staff[hashString(key) % set.staff.length];
+};

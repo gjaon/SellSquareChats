@@ -13,6 +13,9 @@ export interface FeedPostBusiness {
   id: string;
   name: string;
   logo: string | null;
+  // ISO-4217 currency code for this store (each store prices in its own
+  // country's currency — no FX conversion). Falls back to NGN if absent.
+  currency?: string;
   chatToken: string;
 }
 

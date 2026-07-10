@@ -30,6 +30,7 @@ import Button from '../../src/components/ui/Button';
 import { Colors } from '../../src/constants/colors';
 import { useThemedStyles } from '../../src/theme/useThemedStyles';
 import ThemeToggleButton from '../../src/components/ThemeToggleButton';
+import LocationPromptBanner from '../../src/components/location/LocationPromptBanner';
 import { useConfirm } from '../../src/components/ui/ConfirmDialog';
 import { useActionSheet } from '../../src/components/ui/ActionSheet';
 import {
@@ -246,6 +247,8 @@ export default function Home() {
           </TouchableOpacity>
         </View>
       </View>
+
+      <LocationPromptBanner />
 
       <FlatList
         data={visibleStores}

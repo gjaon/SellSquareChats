@@ -6,6 +6,7 @@ import savedStoresReducer from './slices/savedStoresSlice';
 import chatReducer from './slices/chatSlice';
 import walletReducer from './slices/walletSlice';
 import realtimeReducer from './slices/realtimeSlice';
+import supportReducer from './slices/supportSlice';
 
 const persistConfig = {
   key: 'chatalog-root',
@@ -22,6 +23,7 @@ const rootReducer = combineReducers({
   chat: chatReducer,
   wallet: walletReducer,
   realtime: realtimeReducer,
+  support: supportReducer,
 });
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

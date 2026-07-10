@@ -12,6 +12,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../src/services/api';
 import Badge from '../../src/components/ui/Badge';
+import { getCurrencySymbol } from '../../src/utils/currency';
 import { Colors } from '../../src/constants/colors';
 import { useThemedStyles } from '../../src/theme/useThemedStyles';
 import { useConfirm } from '../../src/components/ui/ConfirmDialog';
@@ -21,9 +22,13 @@ interface OrderLine {
   productGroup?: string | null;
   name: string;
   requestedQty: number;
+  acceptedQty?: number;
   unitPrice?: number;
+  effectiveUnitPrice?: number;
   lineTotal?: number;
   variantLabel?: string;
+  // Per-line refund state (E4d). Present on AI/chatalog marketplace orders.
+  lineRefund?: { status?: 'none' | 'refunded'; amount?: number } | null;
 }
 
 interface OrderReview {
@@ -46,12 +51,16 @@ interface OrderDetail {
   createdAt: string;
   updatedAt?: string;
   business?: { businessName?: string; businessLogo?: string };
+  // Store currency (ISO-4217). Every money field formats in the store's own
+  // currency (no FX conversion). Set by the order-detail endpoint.
+  currency?: string;
   storeToken?: string;
   lines?: OrderLine[];
   shippingAddress?: { street?: string; city?: string; state?: string };
   paymentMethod?: string;
   notes?: string;
   reviews?: OrderReview[];
+  refundedAmount?: number;
   payment?: {
     refund?: {
       status?: 'none' | 'requested' | 'credited_to_wallet';
@@ -60,6 +69,18 @@ interface OrderDetail {
     };
   };
 }
+
+// Buyer-facing line price + refund helpers (E4d). Marketplace order lines carry
+// `effectiveUnitPrice`/`acceptedQty`; older/other orders may carry `lineTotal`.
+const lineChargedQty = (l: OrderLine) =>
+  Number(l.acceptedQty) > 0 ? Number(l.acceptedQty) : Number(l.requestedQty || 0);
+const lineDisplayTotal = (l: OrderLine): number | undefined => {
+  if (typeof l.lineTotal === 'number') return l.lineTotal;
+  if (typeof l.effectiveUnitPrice === 'number') return l.effectiveUnitPrice * lineChargedQty(l);
+  return undefined;
+};
+const lineRefundedAmount = (l: OrderLine): number =>
+  l.lineRefund?.status === 'refunded' ? Number(l.lineRefund.amount || 0) : 0;
 
 const STATUS_VARIANT: Record<string, any> = {
   placed: 'info',
@@ -71,11 +92,12 @@ const STATUS_VARIANT: Record<string, any> = {
   delivered: 'success',
   received: 'success',
   completed: 'success',
+  refunded: 'error',
 };
 
 // Once an order reaches one of these statuses the buyer can no longer
 // add more items to it — they should place a new order instead.
-const CLOSED_STATUSES = new Set(['delivered', 'received', 'completed', 'rejected']);
+const CLOSED_STATUSES = new Set(['delivered', 'received', 'completed', 'rejected', 'refunded']);
 // Statuses where the order has already left the merchant's hands (or is on
 // its way out). Adding more items at that point isn't meaningful — the
 // merchant would have to start a separate fulfilment. Buyer should place a
@@ -86,6 +108,7 @@ const NO_MORE_ITEMS_STATUSES = new Set([
   'received',
   'completed',
   'rejected',
+  'refunded',
 ]);
 
 // Statuses where the order is finished and the buyer can leave a review.
@@ -113,9 +136,9 @@ function formatDate(iso?: string) {
   });
 }
 
-function formatNaira(n?: number) {
+function formatNaira(n?: number, symbol = '₦') {
   if (typeof n !== 'number') return '—';
-  return `₦${n.toLocaleString()}`;
+  return `${symbol}${n.toLocaleString()}`;
 }
 
 export default function OrderDetailScreen() {
@@ -363,6 +386,11 @@ export default function OrderDetailScreen() {
   }
 
   const total = order.total ?? order.subtotal;
+  // Cumulative refund credited to the buyer's wallet for this order (E4d).
+  const refundedAmount = Number(order.refundedAmount ?? order.payment?.refund?.amount ?? 0);
+  // Store currency symbol — every money field below uses the store's own
+  // currency (no FX conversion).
+  const curSym = getCurrencySymbol(order.currency);
 
   return (
     <View style={styles.container}>
@@ -401,25 +429,41 @@ export default function OrderDetailScreen() {
         {/* Items */}
         <Text style={styles.sectionHeader}>Items</Text>
         <View style={styles.card}>
-          {(order.lines || []).map((line, i) => (
-            <View
-              key={`${line.name}-${i}`}
-              style={[styles.lineRow, i > 0 && styles.lineDivider]}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.lineName} numberOfLines={2}>
-                  {line.name}
-                </Text>
-                {line.variantLabel && (
-                  <Text style={styles.lineVariant}>{line.variantLabel}</Text>
+          {(order.lines || []).map((line, i) => {
+            const displayTotal = lineDisplayTotal(line);
+            const refunded = lineRefundedAmount(line);
+            return (
+              <View
+                key={`${line.name}-${i}`}
+                style={[styles.lineRow, i > 0 && styles.lineDivider]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.lineName} numberOfLines={2}>
+                    {line.name}
+                  </Text>
+                  {line.variantLabel && (
+                    <Text style={styles.lineVariant}>{line.variantLabel}</Text>
+                  )}
+                  <Text style={styles.lineQty}>Qty: {lineChargedQty(line)}</Text>
+                  {refunded > 0 && (
+                    <View style={styles.lineRefundBadge}>
+                      <Ionicons name="arrow-undo" size={12} color={Colors.error} />
+                      <Text style={styles.lineRefundText}>
+                        Refunded {formatNaira(refunded, curSym)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                {typeof displayTotal === 'number' && (
+                  <Text
+                    style={[styles.linePrice, refunded > 0 && styles.linePriceRefunded]}
+                  >
+                    {formatNaira(displayTotal, curSym)}
+                  </Text>
                 )}
-                <Text style={styles.lineQty}>Qty: {line.requestedQty}</Text>
               </View>
-              {typeof line.lineTotal === 'number' && (
-                <Text style={styles.linePrice}>{formatNaira(line.lineTotal)}</Text>
-              )}
-            </View>
-          ))}
+            );
+          })}
           {(!order.lines || order.lines.length === 0) && (
             <Text style={styles.emptyLines}>No item details available.</Text>
           )}
@@ -430,17 +474,27 @@ export default function OrderDetailScreen() {
         <View style={styles.card}>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Subtotal</Text>
-            <Text style={styles.totalValue}>{formatNaira(order.subtotal)}</Text>
+            <Text style={styles.totalValue}>{formatNaira(order.subtotal, curSym)}</Text>
           </View>
           {typeof order.deliveryFee === 'number' && (
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Delivery</Text>
-              <Text style={styles.totalValue}>{formatNaira(order.deliveryFee)}</Text>
+              <Text style={styles.totalValue}>{formatNaira(order.deliveryFee, curSym)}</Text>
+            </View>
+          )}
+          {refundedAmount > 0 && (
+            <View style={styles.totalRow}>
+              <Text style={[styles.totalLabel, styles.refundLabel]}>Refunded to wallet</Text>
+              <Text style={[styles.totalValue, styles.refundValue]}>
+                -{formatNaira(refundedAmount, curSym)}
+              </Text>
             </View>
           )}
           <View style={[styles.totalRow, styles.totalRowGrand]}>
-            <Text style={styles.grandLabel}>Total</Text>
-            <Text style={styles.grandValue}>{formatNaira(total)}</Text>
+            <Text style={styles.grandLabel}>{refundedAmount > 0 ? 'Net total' : 'Total'}</Text>
+            <Text style={styles.grandValue}>
+              {formatNaira(Math.max(0, total - refundedAmount), curSym)}
+            </Text>
           </View>
         </View>
 
@@ -528,7 +582,7 @@ export default function OrderDetailScreen() {
             ) : (
               <>
                 <Ionicons name="checkmark-done" size={18} color={Colors.white} />
-                <Text style={styles.actionTextPrimary}>Mark as received</Text>
+                <Text style={styles.actionTextPrimary} numberOfLines={2}>Mark as received</Text>
               </>
             )}
           </TouchableOpacity>
@@ -547,7 +601,7 @@ export default function OrderDetailScreen() {
               activeOpacity={0.85}
             >
               <Ionicons name="star" size={18} color={Colors.white} />
-              <Text style={styles.actionTextPrimary}>Leave a review</Text>
+              <Text style={styles.actionTextPrimary} numberOfLines={2}>Leave a review</Text>
             </TouchableOpacity>
           )}
         {!NO_MORE_ITEMS_STATUSES.has(order.status) && (
@@ -558,7 +612,7 @@ export default function OrderDetailScreen() {
             disabled={!order.storeToken}
           >
             <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
-            <Text style={styles.actionTextSecondary}>Add items</Text>
+            <Text style={styles.actionTextSecondary} numberOfLines={2}>Add items</Text>
           </TouchableOpacity>
         )}
         {order.status !== 'delivered' && (
@@ -569,19 +623,19 @@ export default function OrderDetailScreen() {
             disabled={!order.storeToken}
           >
             <Ionicons name="chatbubble-ellipses" size={18} color={Colors.white} />
-            <Text style={styles.actionTextPrimary}>Message store</Text>
+            <Text style={styles.actionTextPrimary} numberOfLines={2}>Message store</Text>
           </TouchableOpacity>
         )}
         {/* Refund: request when eligible, otherwise reflect the current state. */}
         {order.payment?.refund?.status === 'requested' ? (
           <View style={[styles.actionBtn, styles.actionBtnMuted]}>
             <Ionicons name="time-outline" size={18} color={Colors.textSecondary} />
-            <Text style={styles.actionTextMuted}>Refund requested</Text>
+            <Text style={styles.actionTextMuted} numberOfLines={2}>Refund requested</Text>
           </View>
         ) : order.payment?.refund?.status === 'credited_to_wallet' ? (
           <View style={[styles.actionBtn, styles.actionBtnMuted]}>
             <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
-            <Text style={styles.actionTextMuted}>Refunded to wallet</Text>
+            <Text style={styles.actionTextMuted} numberOfLines={2}>Refunded to wallet</Text>
           </View>
         ) : REFUNDABLE_STATUSES.has(order.status) ? (
           <TouchableOpacity
@@ -595,7 +649,7 @@ export default function OrderDetailScreen() {
             ) : (
               <>
                 <Ionicons name="cash-outline" size={18} color={Colors.primary} />
-                <Text style={styles.actionTextSecondary}>Request a refund</Text>
+                <Text style={styles.actionTextSecondary} numberOfLines={2}>Request a refund</Text>
               </>
             )}
           </TouchableOpacity>
@@ -694,6 +748,24 @@ const makeStyles = (C: typeof Colors) =>
       marginTop: 4,
     },
     linePrice: { fontSize: 14, fontFamily: 'Manrope_700Bold', color: C.text },
+    linePriceRefunded: {
+      color: C.textMuted,
+      textDecorationLine: 'line-through',
+    },
+    lineRefundBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 4,
+      marginTop: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 8,
+      backgroundColor: C.errorLight,
+    },
+    lineRefundText: { fontSize: 12, fontFamily: 'Manrope_700Bold', color: C.error },
+    refundLabel: { color: C.error },
+    refundValue: { color: C.error, fontFamily: 'Manrope_600SemiBold' },
     emptyLines: {
       fontSize: 13,
       fontFamily: 'Manrope_400Regular',
@@ -759,13 +831,18 @@ const makeStyles = (C: typeof Colors) =>
       borderTopWidth: 1,
       borderTopColor: C.border,
     },
+    // Icon stacked above a centered, wrap-capable label. With up to three
+    // buttons sharing the row each is only ~1/3 wide, so a horizontal
+    // icon+label overflowed; stacking gives the label the full button width.
     actionBtn: {
       flex: 1,
-      flexDirection: 'row',
+      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 6,
-      paddingVertical: 12,
+      gap: 4,
+      paddingVertical: 10,
+      paddingHorizontal: 4,
+      minHeight: 58,
       borderRadius: 12,
     },
     actionBtnPrimary: { backgroundColor: C.primary },
@@ -780,18 +857,21 @@ const makeStyles = (C: typeof Colors) =>
       borderColor: C.border,
     },
     actionTextPrimary: {
-      fontSize: 14,
+      fontSize: 13,
       fontFamily: 'Manrope_600SemiBold',
       color: C.white,
+      textAlign: 'center',
     },
     actionTextSecondary: {
-      fontSize: 14,
+      fontSize: 13,
       fontFamily: 'Manrope_600SemiBold',
       color: C.primary,
+      textAlign: 'center',
     },
     actionTextMuted: {
-      fontSize: 14,
+      fontSize: 13,
       fontFamily: 'Manrope_600SemiBold',
       color: C.textSecondary,
+      textAlign: 'center',
     },
   });

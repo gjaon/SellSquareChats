@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import SmartImage from '../../src/components/SmartImage';
 import { FeedPost, getHistoryFeed } from '../../src/services/feedService';
+import { getCurrencySymbol } from '../../src/utils/currency';
 import { Colors } from '../../src/constants/colors';
 import { API_URL } from '../../src/constants/config';
 import { useThemedStyles } from '../../src/theme/useThemedStyles';
@@ -27,14 +28,14 @@ const resolveMediaUrl = (raw: string | null | undefined): string | null => {
   return raw;
 };
 
-const formatNaira = (n: number) => `₦${Math.round(n).toLocaleString()}`;
-
 const priceLabel = (post: FeedPost) => {
+  const symbol = getCurrencySymbol(post.business?.currency);
+  const money = (n: number) => `${symbol}${Math.round(n).toLocaleString()}`;
   const p = post.price;
   if (p.hasRange && p.min !== p.max) {
-    return `${formatNaira(p.min)} – ${formatNaira(p.max)}`;
+    return `${money(p.min)} – ${money(p.max)}`;
   }
-  return formatNaira(p.effective || p.base || p.min);
+  return money(p.effective || p.base || p.min);
 };
 
 const timeAgo = (iso?: string) => {

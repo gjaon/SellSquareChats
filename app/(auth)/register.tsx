@@ -15,6 +15,10 @@ import { AppDispatch, RootState } from '../../src/store';
 import { registerPushToken } from '../../src/services/notificationService';
 import Input from '../../src/components/ui/Input';
 import Button from '../../src/components/ui/Button';
+import LocationFields, {
+  LocationValue,
+  emptyLocation,
+} from '../../src/components/location/LocationFields';
 import { Colors } from '../../src/constants/colors';
 import { useThemedStyles } from '../../src/theme/useThemedStyles';
 
@@ -32,10 +36,13 @@ export default function Register() {
     password: '',
     confirmPassword: '',
   });
+  const [location, setLocation] = useState<LocationValue>(emptyLocation);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const set = (key: keyof typeof form) => (val: string) =>
     setForm((f) => ({ ...f, [key]: val }));
+  const updateLocation = (patch: Partial<LocationValue>) =>
+    setLocation((prev) => ({ ...prev, ...patch }));
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -58,6 +65,15 @@ export default function Register() {
         email: form.email,
         phone: form.phone || undefined,
         password: form.password,
+        // Optional location captured at signup → ranks Discover closest-first.
+        country: location.country || undefined,
+        countryCode: location.countryCode || undefined,
+        state: location.state || undefined,
+        city: location.city || undefined,
+        street: location.street || undefined,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        locationSource: location.locationSource,
       })
     );
     if (registerBuyer.fulfilled.match(result)) {
@@ -136,6 +152,11 @@ export default function Register() {
             error={fieldErrors.confirmPassword}
           />
 
+          <Text style={styles.sectionLabel}>
+            Your location <Text style={styles.optional}>(optional — helps us show shops near you)</Text>
+          </Text>
+          <LocationFields value={location} onChange={updateLocation} />
+
           {error && <Text style={styles.errorBanner}>{error}</Text>}
 
           <Button title="Create Account" onPress={handleRegister} loading={isLoading} style={styles.btn} />
@@ -169,6 +190,18 @@ const makeStyles = (C: typeof Colors) => StyleSheet.create({
     marginTop: 4,
   },
   form: {},
+  sectionLabel: {
+    fontSize: 14,
+    fontFamily: 'Manrope_700Bold',
+    color: C.text,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  optional: {
+    fontFamily: 'Manrope_400Regular',
+    fontSize: 12,
+    color: C.textMuted,
+  },
   row: { flexDirection: 'row', gap: 12 },
   half: { flex: 1 },
   btn: { marginTop: 8 },

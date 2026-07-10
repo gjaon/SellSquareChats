@@ -17,6 +17,7 @@ import api from '../../src/services/api';
 import { RootState } from '../../src/store';
 import Badge from '../../src/components/ui/Badge';
 import EmptyState from '../../src/components/ui/EmptyState';
+import { getCurrencySymbol } from '../../src/utils/currency';
 import { Colors } from '../../src/constants/colors';
 import { useThemedStyles } from '../../src/theme/useThemedStyles';
 import ThemeToggleButton from '../../src/components/ThemeToggleButton';
@@ -27,7 +28,7 @@ interface Order {
   status: string;
   subtotal: number;
   createdAt: string;
-  business?: { businessName?: string };
+  business?: { businessName?: string; currency?: string };
   storeToken?: string;
   lines?: { name: string; requestedQty: number }[];
   reviewSummary?: { averageRating: number; count: number } | null;
@@ -41,6 +42,9 @@ const STATUS_VARIANT: Record<string, any> = {
   processing: 'warning',
   shipped: 'info',
   delivered: 'success',
+  received: 'success',
+  completed: 'success',
+  refunded: 'error',
 };
 
 // Filter chips. "All" is the default; the rest map 1:1 to backend
@@ -54,6 +58,7 @@ const STATUS_FILTERS: { label: string; value: string | null }[] = [
   { label: 'Shipped', value: 'shipped' },
   { label: 'Delivered', value: 'delivered' },
   { label: 'Rejected', value: 'rejected' },
+  { label: 'Refunded', value: 'refunded' },
 ];
 
 function formatDate(iso: string) {
@@ -260,7 +265,10 @@ export default function Orders() {
                     </Text>
                   </View>
                 )}
-                <Text style={styles.total}>₦{item.subtotal.toLocaleString()}</Text>
+                <Text style={styles.total}>
+                  {getCurrencySymbol(item.business?.currency)}
+                  {item.subtotal.toLocaleString()}
+                </Text>
               </View>
             </View>
           </TouchableOpacity>

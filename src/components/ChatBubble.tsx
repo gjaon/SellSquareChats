@@ -44,6 +44,11 @@ interface ChatBubbleProps {
    * preset chat message back to the AI.
    */
   onAskAboutProduct?: (card: ProductCard) => void;
+  /**
+   * ISO-4217 currency code for this store. Inline product cards format their
+   * prices in the store's own currency (no FX conversion). Defaults to NGN.
+   */
+  currency?: string;
 }
 
 function formatTime(iso: string) {
@@ -92,6 +97,7 @@ export default function ChatBubble({
   onSwipeReply,
   onJumpToOriginal,
   onAskAboutProduct,
+  currency,
 }: ChatBubbleProps) {
   const styles = useThemedStyles(makeStyles);
   const swipeableRef = useRef<Swipeable>(null);
@@ -217,6 +223,7 @@ export default function ChatBubble({
           <ProductCardList
             cards={message.productCards}
             onAskAbout={onAskAboutProduct}
+            currency={currency}
           />
         ) : null}
         <Text style={[styles.time, { color: isUser ? 'rgba(255,255,255,0.6)' : Colors.textMuted }]}>

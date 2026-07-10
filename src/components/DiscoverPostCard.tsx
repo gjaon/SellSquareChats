@@ -41,6 +41,7 @@ import {
   buildChatPresetMessage,
   formatPriceLabel,
 } from '../utils/variantHelpers';
+import { getCurrencySymbol } from '../utils/currency';
 import { Colors } from '../constants/colors';
 import { API_URL } from '../constants/config';
 import VideoScrubBar from './VideoScrubBar';
@@ -840,7 +841,8 @@ export default function DiscoverPostCard({ post, height, isActive, onMediaIntera
           <Text style={styles.priceText}>{formatPriceLabel(post)}</Text>
           {!isGroup && post.price.effective < post.price.base && (
             <Text style={styles.priceStrike}>
-              ₦{post.price.base.toLocaleString('en-NG')}
+              {getCurrencySymbol(post.business?.currency)}
+              {post.price.base.toLocaleString('en-NG')}
             </Text>
           )}
           {showLowStock && (

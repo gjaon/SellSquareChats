@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { FeedPost, getDiscoverFeed } from '../../src/services/feedService';
+import { getCurrencySymbol } from '../../src/utils/currency';
 import { Colors } from '../../src/constants/colors';
 import { useThemedStyles } from '../../src/theme/useThemedStyles';
 import { API_URL } from '../../src/constants/config';
@@ -35,7 +36,8 @@ const resolveMediaUrl = (raw: string | null | undefined): string | null => {
 };
 
 const formatPrice = (post: FeedPost): string => {
-  const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
+  const symbol = getCurrencySymbol(post.business?.currency);
+  const fmt = (n: number) => `${symbol}${Number(n || 0).toLocaleString()}`;
   if (post.type === 'group' && post.price.hasRange) {
     return `${fmt(post.price.min)} – ${fmt(post.price.max)}`;
   }

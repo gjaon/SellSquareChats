@@ -49,6 +49,7 @@ import {
   getStoreProducts,
   getChatHistory,
   reholdCart,
+  requestNewPaymentLink,
   verifyChatPayment,
   markOrderViewed,
   StoreProduct,
@@ -103,6 +104,10 @@ export default function ChatScreen() {
   const confirm = useConfirm();
 
   const chat = useSelector((s: RootState) => s.chat[storeToken]);
+  // Declared up here (not below with the other render derivations) because
+  // handleJumpToOriginal captures it — declaring it later left the dep array
+  // reading the variable before its initialization.
+  const messages = chat?.messages ?? [];
   const savedStores = useSelector((s: RootState) => s.savedStores.stores);
   const isAuthenticated = useSelector((s: RootState) => s.auth.isAuthenticated);
 
@@ -502,12 +507,24 @@ export default function ChatScreen() {
   }, [conversationId]);
 
   // ── Poll for business injections ────────────────────────────────────────────
+  // Safety net for a dropped realtime socket. Each tick is gated: skipped
+  // entirely while the app is backgrounded (Android keeps firing JS timers in
+  // the background), and backed off to a ~30s backstop while the WS is
+  // connected — the conversation subscription above delivers injections
+  // instantly, so polling at full 5s cadence alongside a live socket was
+  // pure duplicate load on the shared backend.
+  const pollTickRef = useRef(0);
   useEffect(() => {
     if (!chatSessionId || !chat) return;
     if (chat.status === 'closed' || chat.status === 'refund_completed') return;
 
     const poll = setInterval(async () => {
       try {
+        pollTickRef.current += 1;
+        if (AppState.currentState !== 'active') return;
+        if (realtimeService.isConnected() && pollTickRef.current % 6 !== 0) {
+          return;
+        }
         const lastTimestamp =
           chat.messages.length > 0
             ? chat.messages[chat.messages.length - 1].timestamp
@@ -699,15 +716,47 @@ export default function ChatScreen() {
         const hasProductCards =
           Array.isArray(data.productCards) && data.productCards.length > 0;
         if (!data.aiPaused && (replyText || hasProductCards)) {
+          // Route through injectMessages (not raw addMessage) so this is
+          // deduped against the tail. The same assistant reply is also
+          // broadcast over the conversation WebSocket the instant it's
+          // persisted server-side — and that frame frequently lands
+          // BEFORE this HTTP response resolves, in which case the realtime
+          // handler already appended the bubble. A raw addMessage here
+          // would then add a second identical one ("AI reply shows twice
+          // until refresh"). injectMessages collapses duplicates by
+          // role + normalised content within a 60s window.
           dispatch(
-            addMessage({
+            injectMessages({
               storeToken,
-              message: {
-                role: 'assistant',
-                content: replyText,
-                productCards: hasProductCards ? data.productCards : undefined,
-                timestamp: new Date().toISOString(),
-              },
+              messages: [
+                {
+                  role: 'assistant',
+                  content: replyText,
+                  productCards: hasProductCards ? data.productCards : undefined,
+                  timestamp: new Date().toISOString(),
+                },
+              ],
+            })
+          );
+        }
+
+        // System bubbles posted alongside the reply (itemized invoice, payment
+        // link, sold-out apology). The backend persists + broadcasts each as
+        // its own message, so we inject them here with their server timestamps
+        // and let injectMessages dedupe against the realtime/poll re-delivery.
+        // Previously these were concatenated onto `reply`, which made the AI
+        // response render twice until a refresh.
+        if (Array.isArray(data.extraMessages) && data.extraMessages.length) {
+          dispatch(
+            injectMessages({
+              storeToken,
+              messages: data.extraMessages.map((m: any) => ({
+                role: 'assistant' as const,
+                content: String(m.content || ''),
+                timestamp: m.timestamp
+                  ? new Date(m.timestamp).toISOString()
+                  : new Date().toISOString(),
+              })),
             })
           );
         }
@@ -900,7 +949,59 @@ export default function ChatScreen() {
     }
   };
 
-  const messages = chat?.messages ?? [];
+  // ── Request a new payment link (explicit) ────────────────────────────────────
+  // Distinct from re-hold: this discards the outstanding link and mints a
+  // fresh one. Guarded by a confirm so buyers don't accidentally create a
+  // second link (and pay twice) when the first one is still valid.
+  const [requestingLink, setRequestingLink] = useState(false);
+  const handleRequestNewLink = async () => {
+    if (!chatSessionId || requestingLink) return;
+    const ok = await confirm({
+      title: 'Get a new payment link?',
+      message:
+        'Only do this if your current link isn’t working. If you’ve already paid, don’t request a new link — your payment will confirm shortly and requesting a new one could lead to paying twice.',
+      confirmText: 'Get new link',
+      cancelText: 'Cancel',
+      kind: 'warning',
+    });
+    if (!ok) return;
+    setRequestingLink(true);
+    try {
+      const { data } = await requestNewPaymentLink(storeToken, chatSessionId);
+      dispatch(
+        setStatus({
+          storeToken,
+          status: data.status,
+          holdsExpiresAt: data.holdsExpiresAt ?? null,
+          pendingPayment: data.pendingPayment ?? null,
+        }),
+      );
+      await loadHistory();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (data.paid) {
+        await confirm({
+          title: 'Already paid',
+          message: 'Your previous payment was confirmed — your order is being prepared.',
+          confirmText: 'OK',
+          cancelText: null,
+        });
+      }
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        'Could not generate a new payment link. Please try again in a moment.';
+      await confirm({
+        title: 'Couldn’t create a new link',
+        message: msg,
+        confirmText: 'OK',
+        cancelText: null,
+        icon: 'alert-circle-outline',
+      });
+    } finally {
+      setRequestingLink(false);
+    }
+  };
+
   const conversationOrders = chat?.orders ?? [];
   const unviewedOrders = conversationOrders.filter((o) => !o.buyerViewedAt);
   const unviewedOrderCount = unviewedOrders.length;
@@ -1037,6 +1138,7 @@ export default function ChatScreen() {
             message={item}
             agentLabel={businessName || undefined}
             aiLabel={chatMeta?.assistantName || undefined}
+            currency={chatMeta?.currency || undefined}
             onSwipeReply={handleSwipeReply}
             onJumpToOriginal={handleJumpToOriginal}
             onAskAboutProduct={(card) => {
@@ -1077,15 +1179,35 @@ export default function ChatScreen() {
 
       {/* Quick Pay shortcut */}
       {showQuickPay && (
-        <TouchableOpacity style={styles.quickPayBar} onPress={handleQuickPay} activeOpacity={0.8}>
-          <Ionicons name="card-outline" size={16} color={Colors.white} />
-          <Text style={styles.quickPayText}>
-            {chat?.pendingPayment?.authorizationUrl
-              ? 'Pay securely with Flutterwave'
-              : 'Waiting for payment link…'}
-          </Text>
-          <Ionicons name="chevron-forward" size={14} color={Colors.white} />
-        </TouchableOpacity>
+        <>
+          <TouchableOpacity style={styles.quickPayBar} onPress={handleQuickPay} activeOpacity={0.8}>
+            <Ionicons name="card-outline" size={16} color={Colors.white} />
+            <Text style={styles.quickPayText}>
+              {chat?.pendingPayment?.authorizationUrl
+                ? 'Pay securely with Flutterwave'
+                : 'Waiting for payment link…'}
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={Colors.white} />
+          </TouchableOpacity>
+          {/* Explicit escape hatch — only for when the current link is broken.
+              Distinct from re-hold so buyers don't accidentally pay twice. */}
+          {!!chat?.pendingPayment?.authorizationUrl && (
+            <TouchableOpacity
+              style={styles.newLinkBtn}
+              onPress={handleRequestNewLink}
+              disabled={requestingLink}
+              activeOpacity={0.7}
+            >
+              {requestingLink ? (
+                <ActivityIndicator color={Colors.textSecondary} size="small" />
+              ) : (
+                <Text style={styles.newLinkText}>
+                  Payment link not working? Get a new one
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </>
       )}
 
       {/* Order Confirm Card removed — buyers now see the unviewed-orders
@@ -1514,6 +1636,19 @@ const makeStyles = (C: typeof Colors) => StyleSheet.create({
     fontSize: 13,
     fontFamily: 'Manrope_600SemiBold',
     color: C.white,
+  },
+  newLinkBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: C.surface,
+  },
+  newLinkText: {
+    fontSize: 12,
+    fontFamily: 'Manrope_500Medium',
+    color: C.textSecondary,
+    textDecorationLine: 'underline',
   },
 
   // Input bar

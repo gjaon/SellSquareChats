@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -24,18 +24,38 @@ import { AppDispatch, RootState } from '../../src/store';
 import {
   fetchWallet,
   fetchWalletTransactions,
+  fetchPurchases,
   fetchBanks,
   resolveAccount,
   sendBankChangeCode,
   saveBankAccount,
   withdraw,
   WalletTransaction,
+  Purchase,
 } from '../../src/store/slices/walletSlice';
 import { Colors } from '../../src/constants/colors';
 import { useThemedStyles } from '../../src/theme/useThemedStyles';
 
+const CURRENCY_SYMBOL: Record<string, string> = {
+  NGN: '₦',
+  USD: '$',
+  GBP: '£',
+  EUR: '€',
+  GHS: 'GH₵',
+  KES: 'KSh',
+  ZAR: 'R',
+};
+
+const symbolFor = (currency?: string) =>
+  CURRENCY_SYMBOL[(currency || 'NGN').toUpperCase()] || `${currency} `;
+
 const formatAmount = (n: number) =>
   `${n < 0 ? '-' : ''}₦${Math.abs(Number(n || 0)).toLocaleString()}`;
+
+// Purchases can be in a store's own currency (no FX), so format with the
+// purchase's currency rather than the wallet's NGN balance currency.
+const formatMoney = (n: number, currency?: string) =>
+  `${symbolFor(currency)}${Math.abs(Number(n || 0)).toLocaleString()}`;
 
 const TYPE_LABEL: Record<string, string> = {
   refund_credit: 'Refund credit',
@@ -60,15 +80,39 @@ export default function WalletScreen() {
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [showBankSheet, setShowBankSheet] = useState(false);
   const [detailTx, setDetailTx] = useState<WalletTransaction | null>(null);
+  const [detailPurchase, setDetailPurchase] = useState<Purchase | null>(null);
+  // Side-by-side tabs so buyers can switch between their wallet activity and
+  // the things they've bought. Transactions is the default selection.
+  const [activeTab, setActiveTab] = useState<'transactions' | 'purchases'>(
+    'transactions',
+  );
 
   useEffect(() => {
     dispatch(fetchWallet());
     dispatch(fetchWalletTransactions());
+    dispatch(fetchPurchases());
   }, [dispatch]);
+
+  // Realtime refresh: a `wallet.credited` event (escrow/order refund) bumps
+  // `walletDirtyAt`; refetch the authoritative balance + transactions when it
+  // changes (skip the initial null so we don't double-fetch on mount).
+  const walletDirtyAt = useSelector((s: RootState) => s.realtime.walletDirtyAt);
+  const lastWalletDirtyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!walletDirtyAt) return;
+    if (lastWalletDirtyRef.current === walletDirtyAt) return;
+    lastWalletDirtyRef.current = walletDirtyAt;
+    dispatch(fetchWallet());
+    dispatch(fetchWalletTransactions());
+  }, [walletDirtyAt, dispatch]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([dispatch(fetchWallet()), dispatch(fetchWalletTransactions())]);
+    await Promise.all([
+      dispatch(fetchWallet()),
+      dispatch(fetchWalletTransactions()),
+      dispatch(fetchPurchases()),
+    ]);
     setRefreshing(false);
   };
 
@@ -124,18 +168,74 @@ export default function WalletScreen() {
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.sectionTitle}>Transactions</Text>
-        {wallet.transactions.length === 0 && !wallet.loading.transactions ? (
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'transactions' && styles.tabActive]}
+            onPress={() => setActiveTab('transactions')}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === 'transactions' && styles.tabLabelActive,
+              ]}
+            >
+              Transactions
+            </Text>
+            {wallet.loading.transactions && wallet.transactions.length === 0 && (
+              <ActivityIndicator size="small" color={Colors.textMuted} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'purchases' && styles.tabActive]}
+            onPress={() => setActiveTab('purchases')}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === 'purchases' && styles.tabLabelActive,
+              ]}
+            >
+              Purchases
+            </Text>
+            {wallet.loading.purchases && wallet.purchases.length === 0 && (
+              <ActivityIndicator size="small" color={Colors.textMuted} />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {activeTab === 'transactions' ? (
+          wallet.transactions.length === 0 && !wallet.loading.transactions ? (
+            <View style={styles.empty}>
+              <Ionicons name="wallet-outline" size={48} color={Colors.textMuted} />
+              <Text style={styles.emptyText}>
+                No wallet activity yet. Refunds from any store will show up here.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.txList}>
+              {wallet.transactions.map((tx) => (
+                <TxRow key={tx._id} tx={tx} styles={styles} onPress={() => setDetailTx(tx)} />
+              ))}
+            </View>
+          )
+        ) : wallet.purchases.length === 0 && !wallet.loading.purchases ? (
           <View style={styles.empty}>
-            <Ionicons name="wallet-outline" size={48} color={Colors.textMuted} />
+            <Ionicons name="bag-handle-outline" size={48} color={Colors.textMuted} />
             <Text style={styles.emptyText}>
-              No wallet activity yet. Refunds from any store will show up here.
+              No purchases yet. Items you pay for in any store will show up here.
             </Text>
           </View>
         ) : (
           <View style={styles.txList}>
-            {wallet.transactions.map((tx) => (
-              <TxRow key={tx._id} tx={tx} styles={styles} onPress={() => setDetailTx(tx)} />
+            {wallet.purchases.map((p) => (
+              <PurchaseRow
+                key={p._id}
+                purchase={p}
+                styles={styles}
+                onPress={() => setDetailPurchase(p)}
+              />
             ))}
           </View>
         )}
@@ -150,7 +250,148 @@ export default function WalletScreen() {
       {detailTx && (
         <TxDetailModal tx={detailTx} styles={styles} onClose={() => setDetailTx(null)} />
       )}
+      {detailPurchase && (
+        <PurchaseDetailModal
+          purchase={detailPurchase}
+          styles={styles}
+          onClose={() => setDetailPurchase(null)}
+        />
+      )}
     </View>
+  );
+}
+
+function PurchaseRow({
+  purchase,
+  styles,
+  onPress,
+}: {
+  purchase: Purchase;
+  styles: any;
+  onPress: () => void;
+}) {
+  const itemCount = purchase.items.reduce((s, i) => s + (i.quantity || 0), 0);
+  const summary =
+    purchase.items.length > 0
+      ? purchase.items
+          .map((i) => `${i.name} ×${i.quantity}`)
+          .join(', ')
+      : `${itemCount} item${itemCount === 1 ? '' : 's'}`;
+  return (
+    <TouchableOpacity style={styles.txRow} onPress={onPress} activeOpacity={0.6}>
+      <View style={[styles.txIcon, { backgroundColor: Colors.surface }]}>
+        <Ionicons name="bag-handle-outline" size={16} color={Colors.primary} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.txTitle} numberOfLines={1}>
+          {purchase.merchant.name}
+        </Text>
+        <Text style={styles.txDesc} numberOfLines={1}>
+          {summary}
+        </Text>
+        <Text style={styles.txDate}>
+          {new Date(purchase.createdAt).toLocaleString(undefined, {
+            day: 'numeric',
+            month: 'short',
+            hour: 'numeric',
+            minute: '2-digit',
+          })}
+        </Text>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <Text style={[styles.txAmount, { color: Colors.text }]}>
+          {formatMoney(purchase.amount, purchase.currency)}
+        </Text>
+        <Text style={[styles.txStatus, { color: STATUS_COLOR[purchase.status] || Colors.textMuted }]}>
+          {String(purchase.status || '').replace(/_/g, ' ')}
+        </Text>
+        <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} style={{ marginTop: 2 }} />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function PurchaseDetailModal({
+  purchase,
+  styles,
+  onClose,
+}: {
+  purchase: Purchase;
+  styles: any;
+  onClose: () => void;
+}) {
+  const fullDate = new Date(purchase.createdAt).toLocaleString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+  return (
+    <Modal transparent visible animationType="slide" onRequestClose={onClose}>
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback onPress={() => {}}>
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+
+              <View style={styles.detailHero}>
+                <Text style={styles.detailType}>{purchase.merchant.name}</Text>
+                <Text style={[styles.detailAmount, { color: Colors.text }]}>
+                  {formatMoney(purchase.amount, purchase.currency)}
+                </Text>
+                <View
+                  style={[
+                    styles.detailStatusPill,
+                    { backgroundColor: (STATUS_COLOR[purchase.status] || Colors.textMuted) + '22' },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.detailStatusText,
+                      { color: STATUS_COLOR[purchase.status] || Colors.textMuted },
+                    ]}
+                  >
+                    {String(purchase.status || '').replace(/_/g, ' ')}
+                  </Text>
+                </View>
+              </View>
+
+              <ScrollView style={{ maxHeight: 280 }}>
+                {purchase.items.map((item, idx) => (
+                  <View key={idx} style={styles.purchaseItemRow}>
+                    <Text style={styles.purchaseItemName} numberOfLines={2}>
+                      {item.name}
+                      <Text style={styles.purchaseItemQty}>{`  × ${item.quantity}`}</Text>
+                    </Text>
+                    <Text style={styles.purchaseItemPrice}>
+                      {formatMoney(item.price * item.quantity, purchase.currency)}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+
+              <View style={styles.detailRow}>
+                <Text style={styles.detailKey}>Order</Text>
+                <Text style={[styles.detailVal, styles.detailMono]} selectable>
+                  {purchase.orderNumber}
+                </Text>
+              </View>
+              <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
+                <Text style={styles.detailKey}>Date</Text>
+                <Text style={styles.detailVal}>{fullDate}</Text>
+              </View>
+
+              <TouchableOpacity style={styles.detailCloseBtn} onPress={onClose}>
+                <Text style={styles.detailCloseText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
   );
 }
 
@@ -733,6 +974,68 @@ const makeStyles = (C: typeof Colors) =>
       color: C.textSecondary,
       textTransform: 'uppercase',
       letterSpacing: 0.5,
+    },
+    sectionHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingRight: 16,
+    },
+    tabBar: {
+      flexDirection: 'row',
+      marginHorizontal: 16,
+      marginTop: 24,
+      marginBottom: 12,
+      backgroundColor: C.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: C.border,
+      padding: 4,
+      gap: 4,
+    },
+    tab: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 9,
+      borderRadius: 9,
+    },
+    tabActive: {
+      backgroundColor: C.primary,
+    },
+    tabLabel: {
+      fontSize: 13,
+      fontFamily: 'Manrope_600SemiBold',
+      color: C.textSecondary,
+    },
+    tabLabelActive: {
+      color: C.white,
+    },
+    purchaseItemRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: C.border,
+    },
+    purchaseItemName: {
+      flex: 1,
+      fontSize: 14,
+      color: C.text,
+      fontFamily: 'Manrope_600SemiBold',
+    },
+    purchaseItemQty: {
+      color: C.textSecondary,
+      fontFamily: 'Manrope_500Medium',
+    },
+    purchaseItemPrice: {
+      fontSize: 14,
+      color: C.text,
+      fontFamily: 'Manrope_700Bold',
     },
     txList: {
       marginHorizontal: 16,

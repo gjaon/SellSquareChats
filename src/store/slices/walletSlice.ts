@@ -21,14 +21,34 @@ export interface WalletTransaction {
   createdAt: string;
 }
 
+export interface PurchaseItem {
+  name: string;
+  quantity: number;
+  price: number;
+}
+
+export interface Purchase {
+  _id: string;
+  orderNumber: string;
+  status: string;
+  createdAt: string;
+  source: string;
+  amount: number;
+  currency: string;
+  merchant: { name: string; logo?: string | null };
+  items: PurchaseItem[];
+}
+
 interface WalletState {
   balance: number;
   currency: string;
   bankAccount: BankAccount | null;
   transactions: WalletTransaction[];
+  purchases: Purchase[];
   loading: {
     wallet: boolean;
     transactions: boolean;
+    purchases: boolean;
     withdraw: boolean;
     bank: boolean;
   };
@@ -40,7 +60,8 @@ const initialState: WalletState = {
   currency: 'NGN',
   bankAccount: null,
   transactions: [],
-  loading: { wallet: false, transactions: false, withdraw: false, bank: false },
+  purchases: [],
+  loading: { wallet: false, transactions: false, purchases: false, withdraw: false, bank: false },
   error: null,
 };
 
@@ -62,6 +83,18 @@ export const fetchWalletTransactions = createAsyncThunk(
     try {
       const { data } = await api.get('/api/wallet/transactions');
       return data as WalletTransaction[];
+    } catch (err: any) {
+      return thunkAPI.rejectWithValue(err.response?.data?.message || err.message);
+    }
+  },
+);
+
+export const fetchPurchases = createAsyncThunk(
+  'wallet/fetchPurchases',
+  async (_, thunkAPI) => {
+    try {
+      const { data } = await api.get('/api/wallet/purchases');
+      return data as Purchase[];
     } catch (err: any) {
       return thunkAPI.rejectWithValue(err.response?.data?.message || err.message);
     }
@@ -144,6 +177,7 @@ const walletSlice = createSlice({
       state.balance = 0;
       state.bankAccount = null;
       state.transactions = [];
+      state.purchases = [];
     },
   },
   extraReducers: (builder) => {
@@ -170,6 +204,16 @@ const walletSlice = createSlice({
       })
       .addCase(fetchWalletTransactions.rejected, (s) => {
         s.loading.transactions = false;
+      })
+      .addCase(fetchPurchases.pending, (s) => {
+        s.loading.purchases = true;
+      })
+      .addCase(fetchPurchases.fulfilled, (s, a) => {
+        s.loading.purchases = false;
+        s.purchases = a.payload || [];
+      })
+      .addCase(fetchPurchases.rejected, (s) => {
+        s.loading.purchases = false;
       })
       .addCase(saveBankAccount.pending, (s) => {
         s.loading.bank = true;

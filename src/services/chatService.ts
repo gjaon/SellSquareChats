@@ -61,6 +61,25 @@ export const reholdCart = (chatToken: string, chatSessionId: string) =>
     } | null;
   }>(`/api/ai-storefront/chat/${chatToken}/rehold`, { chatSessionId });
 
+// Buyer-facing "I need a new payment link" action. Unlike re-hold (which
+// reuses the outstanding link so the buyer never pays twice), this explicitly
+// discards the old link and mints a fresh one for the same cart. Backend
+// verifies the old link first — `paid` is true if it had actually settled.
+export const requestNewPaymentLink = (chatToken: string, chatSessionId: string) =>
+  api.post<{
+    ok: true;
+    paid?: boolean;
+    status: string;
+    holdsExpiresAt?: string | null;
+    pendingPayment?: {
+      provider?: string;
+      reference?: string;
+      authorizationUrl?: string;
+      amount?: number;
+      status?: 'initialized' | 'success' | 'failed' | 'abandoned';
+    } | null;
+  }>(`/api/ai-storefront/chat/${chatToken}/new-payment-link`, { chatSessionId });
+
 // Verify-on-return for Flutterwave checkouts. Called when the buyer comes
 // back to the app after paying (or taps "I've paid") so the payment is
 // verified + settled immediately instead of waiting on the webhook (which

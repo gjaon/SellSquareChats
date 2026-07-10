@@ -9,6 +9,8 @@ interface RealtimeState {
   // (debounced refetch model — we don't patch individual rows here).
   discoverDirtyAt: string | null;
   ordersDirtyAt: string | null;
+  walletDirtyAt: string | null;
+  supportDirtyAt: string | null;
 }
 
 const initialState: RealtimeState = {
@@ -16,6 +18,8 @@ const initialState: RealtimeState = {
   lastEventAt: null,
   discoverDirtyAt: null,
   ordersDirtyAt: null,
+  walletDirtyAt: null,
+  supportDirtyAt: null,
 };
 
 const realtimeSlice = createSlice({
@@ -34,6 +38,12 @@ const realtimeSlice = createSlice({
     markOrdersDirty(state) {
       state.ordersDirtyAt = new Date().toISOString();
     },
+    markWalletDirty(state) {
+      state.walletDirtyAt = new Date().toISOString();
+    },
+    markSupportDirty(state) {
+      state.supportDirtyAt = new Date().toISOString();
+    },
   },
 });
 
@@ -42,5 +52,7 @@ export const {
   markRealtimeEvent,
   markDiscoverDirty,
   markOrdersDirty,
+  markWalletDirty,
+  markSupportDirty,
 } = realtimeSlice.actions;
 export default realtimeSlice.reducer;

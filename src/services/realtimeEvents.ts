@@ -31,6 +31,8 @@ import {
   markRealtimeEvent,
   markDiscoverDirty,
   markOrdersDirty,
+  markWalletDirty,
+  markSupportDirty,
 } from '../store/slices/realtimeSlice';
 
 interface RealtimePayload {
@@ -59,6 +61,9 @@ const EVENT_TYPES = {
   MARKETPLACE_INTERNAL_ORDER_STATUS_UPDATED: 'marketplace.internal_order.status_updated',
   MARKETPLACE_LISTING_CHANGED: 'marketplace.listing.changed',
   WALLET_CREDITED: 'wallet.credited',
+  SUPPORT_TICKET_CREATED: 'support.ticket.created',
+  SUPPORT_TICKET_MESSAGE: 'support.ticket.message',
+  SUPPORT_TICKET_UPDATED: 'support.ticket.updated',
 } as const;
 
 /**
@@ -174,6 +179,22 @@ const handleOrderUpdated = () => {
   store.dispatch(markOrdersDirty());
 };
 
+// Buyer wallet was credited (escrow refund / rejected-order refund / per-line
+// refund — see backend escrowReleaseService + internalMarketplaceOrderController).
+// The event carries `amount` but not the new balance, so mark the wallet dirty
+// and let the Wallet screen refetch the authoritative balance + transactions.
+const handleWalletCredited = () => {
+  store.dispatch(markWalletDirty());
+};
+
+// Support ticket activity (support agent replied / status changed on one of the
+// buyer's tickets). Mark the Support screen dirty so its list + open thread
+// refetch; the screen owns the actual state. Push arrives via the existing Expo
+// pipeline (notifyBuyer) — no new work here.
+const handleSupportUpdated = () => {
+  store.dispatch(markSupportDirty());
+};
+
 const handlerMap: Record<string, (p: RealtimePayload) => void> = {
   [EVENT_TYPES.CHAT_MESSAGE_NEW]: handleChatMessageNew,
   [EVENT_TYPES.CHAT_HOLD_EXPIRED]: handleHoldExpired,
@@ -184,8 +205,10 @@ const handlerMap: Record<string, (p: RealtimePayload) => void> = {
   [EVENT_TYPES.MARKETPLACE_INTERNAL_ORDER_ACCEPTED]: handleOrderUpdated,
   [EVENT_TYPES.MARKETPLACE_INTERNAL_ORDER_REJECTED]: handleOrderUpdated,
   [EVENT_TYPES.MARKETPLACE_INTERNAL_ORDER_STATUS_UPDATED]: handleOrderUpdated,
-  // Wallet events are wired here as the wallet slice grows realtime
-  // support. For now they no-op — the next manual fetch reconciles.
+  [EVENT_TYPES.WALLET_CREDITED]: handleWalletCredited,
+  [EVENT_TYPES.SUPPORT_TICKET_CREATED]: handleSupportUpdated,
+  [EVENT_TYPES.SUPPORT_TICKET_MESSAGE]: handleSupportUpdated,
+  [EVENT_TYPES.SUPPORT_TICKET_UPDATED]: handleSupportUpdated,
 };
 
 export const dispatchRealtimeEvent = (payload: RealtimePayload): void => {
